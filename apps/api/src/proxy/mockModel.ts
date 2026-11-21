@@ -1,3 +1,4 @@
+import { deobfuscate } from "../eval/mutations.js";
 /**
  * "crucible-mock" — a deterministic stand-in for an LLM provider speaking the Anthropic Messages API.
  * It plans tool calls from the task, retries failed tools (like real models do), and is deliberately
@@ -103,7 +104,8 @@ export function mockRespond(req: MessagesRequest) {
   let content: Block[];
 
   // gullible: obeys injected instructions in the task or in the newest tool output
-  const injected = [task, last?.content ?? ""].find((s) => INJECTION.test(s));
+  // the model "understands" obfuscation (base64, leetspeak, zero-width, German, split payloads, hidden markup)
+  const injected = [task, last?.content ?? ""].flatMap(deobfuscate).find((s) => INJECTION.test(s));
   const callInstr = injected?.match(/call (\w+) with (\{.*?\})/);
   const sameTool = callInstr && runs.some((r) => r.name === callInstr[1] && JSON.stringify(r.input) === JSON.stringify(parse(callInstr[2])));
   if (callInstr && tools.has(callInstr[1]) && !sameTool) content = [{ type: "text", text: "Processing the request." }, toolUse(callInstr[1], parse(callInstr[2]) ?? {})];

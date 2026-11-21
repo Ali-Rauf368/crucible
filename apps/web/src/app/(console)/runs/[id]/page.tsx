@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, RotateCcw, Flag, GitCompareArrows, Square, Download, Search, Zap, Timer, DollarSign, Coins, Gauge, CheckCircle2, XCircle, Star, Scale, FileText, ListChecks, Activity, Bot, Hash } from "lucide-react";
+import { ArrowLeft, RotateCcw, Flag, GitCompareArrows, Square, Download, Search, Zap, Timer, DollarSign, Coins, Gauge, CheckCircle2, XCircle, Star, Scale, FileText, ListChecks, Activity, Bot, Hash, ShieldCheck, ShieldX, Pin } from "lucide-react";
 import { api, useApi } from "@/lib/api";
 import { pct, usd, num, ms, ago, dateTime } from "@/lib/format";
 import { Card, CardHeader, Badge, Skeleton, ErrorBox, Empty, Modal, Spinner, Tabs, useToast, cx } from "@/components/ui";
@@ -56,7 +56,7 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
         {live && <div className="absolute inset-x-0 top-0 h-0.5 animate-shimmer bg-[linear-gradient(90deg,transparent,rgb(var(--accent)),transparent)] bg-[length:200%_100%]" />}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2"><RunStatus s={r.status} done={r.done} total={r.total} />{r.is_baseline && <Badge tone="accent"><Star className="h-3 w-3" />baseline</Badge>}<Badge>{r.trigger}</Badge>{!r.chaos && <Badge tone="warn">chaos off</Badge>}</div>
+            <div className="flex flex-wrap items-center gap-2"><RunStatus s={r.status} done={r.done} total={r.total} />{r.is_baseline && <Badge tone="accent"><Star className="h-3 w-3" />baseline</Badge>}<Badge>{r.trigger}</Badge>{!r.chaos && <Badge tone="warn">chaos off</Badge>}{r.gate && <Link href={`/compare?base=${r.gate.baselineRunId}&cand=${r.id}`}><Badge tone={r.gate.passed ? "ok" : "bad"}>{r.gate.passed ? <ShieldCheck className="h-3 w-3" /> : <ShieldX className="h-3 w-3" />}gate {r.gate.passed ? "passed" : "failed"} vs #{r.gate.baselineRunId}</Badge></Link>}</div>
             <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">#{r.id} · {r.label}</h1>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
               <span className="flex items-center gap-1"><Bot className="h-3.5 w-3.5" />{r.agent}</span>
@@ -141,6 +141,11 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
 
 function CaseInspector({ id, onClose }: { id: number | null; onClose: () => void }) {
   const c = useApi<Json>(id ? `/api/cases/${id}` : null);
+  const user = useSession(); const toast = useToast(); const router = useRouter();
+  const pin = async () => {
+    try { const sc = await api<Json>(`/api/cases/${id}/to-scenario`, { method: "POST", json: {} }); toast(`Pinned as “${sc.name}”`, "ok"); router.push(`/suites/${sc.suite_id}`); }
+    catch (e) { toast((e as Error).message, "bad"); }
+  };
   const [tab, setTab] = useState<"trace" | "checks" | "judge" | "io">("trace");
   const d = c.data && c.data.id === id ? c.data : null;
   return (
@@ -152,6 +157,7 @@ function CaseInspector({ id, onClose }: { id: number | null; onClose: () => void
             <OutcomeBadge o={d.outcome} />
             {d.scores && <span className="text-xs text-muted">overall <b className="text-fg">{Math.round(d.scores.overall * 100)}</b> · acc {Math.round(d.scores.accuracy * 100)} · safety {Math.round(d.scores.safety * 100)} · resilience {Math.round(d.scores.resilience * 100)}</span>}
             <span className="ml-auto text-xs text-muted tabular-nums">{ms(d.latency_ms)} · {d.llm_calls} LLM + {d.tool_calls} tool calls · {usd(d.cost_usd)}</span>
+            {can(user, "engineer") && d.input != null && <button className="btn-secondary px-2.5 py-1 text-xs" onClick={pin} title="Create a scenario that replays this exact input and fault schedule"><Pin className="h-3.5 w-3.5" />Pin as regression</button>}
           </div>
           {d.faults_injected.length > 0 && (
             <div className="rounded-lg border border-line bg-raised/40 p-3">

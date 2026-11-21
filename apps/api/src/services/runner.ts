@@ -11,12 +11,14 @@ import { canaryFor } from "../agents/contract.js";
 import { evaluate, AssertionSpec } from "../eval/assertions.js";
 import { judge } from "../eval/judge.js";
 import { classify, score, summarize, type Scores } from "../eval/score.js";
+import { compare } from "../eval/compare.js";
+import { notify } from "./scheduler.js";
 
 let selfUrl = env.PUBLIC_URL;
 export const setSelfUrl = (u: string) => { selfUrl = u; };
 const CASE_TIMEOUT_MS = Number(process.env.CASE_TIMEOUT_MS ?? 25_000);
 
-export async function createRun(o: { suiteId: number; agentId: number; label?: string; seed?: number; repeats?: number; chaos?: boolean; trigger?: string; gitSha?: string; createdBy?: string; scenarioIds?: number[]; baseline?: boolean }) {
+export async function createRun(o: { suiteId: number; agentId: number; label?: string; seed?: number; repeats?: number; chaos?: boolean; trigger?: string; gitSha?: string; createdBy?: string; scenarioIds?: number[]; baseline?: boolean; scheduleId?: number }) {
   const [suite, agent] = await Promise.all([one("SELECT * FROM suites WHERE id = $1", [o.suiteId]), one("SELECT * FROM agents WHERE id = $1", [o.agentId])]);
   if (!suite || !agent) throw Object.assign(new Error("suite or agent not found"), { status: 404 });
   const scenarios = await q("SELECT * FROM scenarios WHERE suite_id = $1 AND enabled ORDER BY id", [o.suiteId]);
@@ -24,8 +26,8 @@ export async function createRun(o: { suiteId: number; agentId: number; label?: s
   if (!chosen.length) throw Object.assign(new Error("suite has no enabled scenarios"), { status: 400 });
   const repeats = Math.min(10, Math.max(1, o.repeats ?? 1)), chaos = o.chaos ?? true;
   const seed = o.seed ?? crypto.randomInt(1, 2 ** 31 - 1);
-  const run = await one(`INSERT INTO runs (suite_id, agent_id, label, status, trigger, git_sha, seed, repeats, chaos, total, created_by, is_baseline) VALUES ($1,$2,$3,'queued',$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-    [suite.id, agent.id, o.label || `${agent.name} · ${new Date().toISOString().slice(0, 16).replace("T", " ")}`, o.trigger ?? "manual", o.gitSha ?? null, seed, repeats, chaos, chosen.length * repeats, o.createdBy ?? null, !!o.baseline]);
+  const run = await one(`INSERT INTO runs (suite_id, agent_id, label, status, trigger, git_sha, seed, repeats, chaos, total, created_by, is_baseline, schedule_id) VALUES ($1,$2,$3,'queued',$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    [suite.id, agent.id, o.label || `${agent.name} · ${new Date().toISOString().slice(0, 16).replace("T", " ")}`, o.trigger ?? "manual", o.gitSha ?? null, seed, repeats, chaos, chosen.length * repeats, o.createdBy ?? null, !!o.baseline, o.scheduleId ?? null]);
   for (const s of chosen) for (let a = 1; a <= repeats; a++) {
     const c = await one(`INSERT INTO run_cases (run_id, scenario_id, scenario_name, category, critical, attempt, session_id, faults_planned) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [run.id, s.id, s.name, s.category, s.critical, a, `ses_${crypto.randomBytes(12).toString("hex")}`, JSON.stringify(chaos ? s.faults : [])]);
@@ -100,7 +102,34 @@ async function finishRunIfDone(runId: number) {
   const agg = summarize(cases);
   const final = r.status === "cancelled" ? "cancelled" : "completed";
   await q("UPDATE runs SET status = $2, scores = $3, summary = $4, finished_at = now() WHERE id = $1", [runId, final, JSON.stringify(agg.scores), JSON.stringify(agg.summary)]);
+  const gate = final === "completed" ? await gateAgainstBaseline(runId).catch((e) => { console.error("gate:", e.message); return null; }) : null;
   await publish({ type: "run.finished", runId, status: final });
+  await afterRun(runId, final, gate).catch((e) => console.error("post-run hooks:", e.message));
+}
+
+/** Stores the regression verdict against the suite's current baseline on every completed run. */
+export async function gateAgainstBaseline(runId: number) {
+  const run = await one("SELECT r.*, s.thresholds FROM runs r JOIN suites s ON s.id = r.suite_id WHERE r.id = $1", [runId]);
+  const base = await one("SELECT r.* FROM runs r WHERE r.suite_id = $1 AND r.is_baseline AND r.status = 'completed' AND r.id <> $2 ORDER BY r.finished_at DESC LIMIT 1", [run.suite_id, runId]);
+  if (!base) return null;
+  const [bc, cc] = await Promise.all([q("SELECT * FROM run_cases WHERE run_id = $1", [base.id]), q("SELECT * FROM run_cases WHERE run_id = $1", [runId])]);
+  const report = compare(base, run, bc, cc, run.thresholds);
+  const gate = { passed: report.gate.passed, reasons: report.gate.reasons, baselineRunId: base.id, regressions: report.regressions.length, deltas: report.deltas };
+  await q("UPDATE runs SET gate = $2 WHERE id = $1", [runId, JSON.stringify(gate)]);
+  return gate;
+}
+
+async function afterRun(runId: number, status: string, gate: { passed: boolean; reasons: string[]; baselineRunId: number; regressions: number } | null) {
+  const r = await one(`SELECT r.id, r.label, r.schedule_id, r.scores, r.summary, s.name AS suite, a.name AS agent, sc.webhook_url, sc.notify FROM runs r JOIN suites s ON s.id = r.suite_id JOIN agents a ON a.id = r.agent_id LEFT JOIN schedules sc ON sc.id = r.schedule_id WHERE r.id = $1`, [runId]);
+  if (!r.schedule_id) return;
+  const failed = status !== "completed" || (gate ? !gate.passed : (r.scores?.overall ?? 0) < 0.7);
+  await q("UPDATE schedules SET last_status = $2 WHERE id = $1", [r.schedule_id, failed ? "gate_failed" : "passed"]);
+  if (!r.webhook_url || r.notify === "never" || (r.notify === "failures" && !failed)) return;
+  const pctTxt = (v: number | undefined) => (v == null ? "n/a" : `${Math.round(v * 100)}%`);
+  const text = `${failed ? ":rotating_light: Crucible gate FAILED" : ":white_check_mark: Crucible gate passed"}: *${r.agent}* on *${r.suite}* (run #${r.id})\n` +
+    `overall ${pctTxt(r.scores?.overall)} · pass ${pctTxt(r.summary?.passRate)} · safety ${pctTxt(r.scores?.safety)} · resilience ${pctTxt(r.scores?.resilience)}` +
+    (gate?.reasons.length ? `\n${gate.reasons.map((x) => `• ${x}`).join("\n")}` : "");
+  await notify(r.schedule_id, runId, r.webhook_url, { text, crucible: { runId, suite: r.suite, agent: r.agent, status, gate, scores: r.scores } });
 }
 
 export async function cancelRun(runId: number) {

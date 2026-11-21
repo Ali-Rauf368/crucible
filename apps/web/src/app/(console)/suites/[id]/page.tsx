@@ -1,10 +1,10 @@
 "use client";
 import Link from "next/link";
 import { use, useState } from "react";
-import { ArrowLeft, Plus, Pencil, Trash2, Zap, Rocket, Scale, Gauge, Copy, Download } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, Zap, Rocket, Scale, Gauge, Copy, Download, WandSparkles, Activity, Replace } from "lucide-react";
 import { api, useApi } from "@/lib/api";
 import { pct, ago } from "@/lib/format";
-import { Card, CardHeader, Badge, Skeleton, ErrorBox, Empty, Modal, useToast, cx } from "@/components/ui";
+import { Card, CardHeader, Badge, Skeleton, ErrorBox, Empty, Modal, Spinner, useToast, cx } from "@/components/ui";
 import { FaultChip, OutcomeBar, RunStatus } from "@/components/domain";
 import { Lines } from "@/components/charts";
 import { ScenarioEditor, EMPTY, type ScenarioDraft } from "@/components/scenario-editor";
@@ -17,6 +17,8 @@ export default function SuitePage({ params }: { params: Promise<{ id: string }> 
   const s = useApi<Json>(`/api/suites/${id}`);
   const [draft, setDraft] = useState<ScenarioDraft | null>(null);
   const [del, setDel] = useState<Json | null>(null);
+  const [fuzz, setFuzz] = useState<Json | null>(null);
+  const flaky = useApi<Json[]>(`/api/suites/${id}/flakiness`);
   const user = useSession(); const toast = useToast(); const openRun = useOpenRun();
   const engineer = can(user, "engineer");
   if (s.error && !s.data) return <ErrorBox message={s.error} onRetry={s.reload} />;
@@ -62,13 +64,14 @@ export default function SuitePage({ params }: { params: Promise<{ id: string }> 
             <ul className="divide-y divide-line">{d.scenarios.map((sc: Json) => (
               <li key={sc.id} className={cx("flex items-start gap-3 px-5 py-3", !sc.enabled && "opacity-50")}>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{sc.name}</span><Badge>{sc.category}</Badge>{sc.critical && <Badge tone="bad">critical</Badge>}{!sc.enabled && <Badge>disabled</Badge>}</div>
+                  <div className="flex flex-wrap items-center gap-2"><span className="font-medium">{sc.name}</span><Badge>{sc.category}</Badge>{sc.source?.type === "mutation" && <Badge tone="accent"><WandSparkles className="h-3 w-3" />mutation</Badge>}{sc.source?.type === "replay" && <Badge tone="info"><Replace className="h-3 w-3" />replay</Badge>}{sc.critical && <Badge tone="bad">critical</Badge>}{!sc.enabled && <Badge>disabled</Badge>}</div>
                   <p className="mt-0.5 line-clamp-1 text-sm text-muted">“{sc.input}”</p>
                   <div className="mt-1.5 flex flex-wrap gap-1">{sc.faults.map((f: Json, i: number) => <FaultChip key={i} type={f.type} target={f.target} />)}<span className="text-[11px] text-subtle">{sc.assertions.length} assertions</span></div>
                 </div>
                 {engineer && <div className="flex shrink-0 gap-1">
                   <button className="btn-ghost p-1.5" onClick={() => setDraft(sc)} aria-label={`Edit ${sc.name}`}><Pencil className="h-4 w-4" /></button>
                   <button className="btn-ghost p-1.5" onClick={() => setDraft({ ...sc, id: undefined, name: `${sc.name} (copy)` })} aria-label={`Duplicate ${sc.name}`}><Copy className="h-4 w-4" /></button>
+                  <button className="btn-ghost p-1.5 text-accent" onClick={() => setFuzz(sc)} aria-label={`Generate attack mutations of ${sc.name}`} title="Generate attack mutations"><WandSparkles className="h-4 w-4" /></button>
                   <button className="btn-ghost p-1.5 text-bad" onClick={() => setDel(sc)} aria-label={`Delete ${sc.name}`}><Trash2 className="h-4 w-4" /></button>
                 </div>}
               </li>))}</ul>
@@ -87,10 +90,60 @@ export default function SuitePage({ params }: { params: Promise<{ id: string }> 
           </Card>
         </div>
       </div>
+      <FlakinessPanel rows={flaky.data} />
+      <MutateDialog scenario={fuzz} onClose={() => setFuzz(null)} onDone={(n) => { setFuzz(null); toast(`${n} mutated scenario(s) added`, "ok"); s.reload(); }} />
       <ScenarioEditor draft={draft} onClose={() => setDraft(null)} onSave={save} />
       <Modal open={!!del} onClose={() => setDel(null)} title="Delete scenario?" footer={<><button className="btn-secondary" onClick={() => setDel(null)}>Cancel</button><button className="btn-danger" onClick={remove}>Delete</button></>}>
         <p className="text-sm text-muted">“{del?.name}” will be removed from the suite. Past run results keep their copy of the scenario name.</p>
       </Modal>
     </div>
+  );
+}
+
+function FlakinessPanel({ rows }: { rows: Json[] | null }) {
+  if (!rows) return <Skeleton className="h-40" />;
+  const flaky = rows.filter((r) => r.verdict === "flaky").length;
+  return (
+    <Card>
+      <div className="card-pad pb-2"><CardHeader title="Flakiness & stability" subtitle={`Across the last 20 runs · ${flaky} flaky scenario/agent pair${flaky === 1 ? "" : "s"}. pass@k = any of k repeats passes · pass^k = all k pass (consistency)`} icon={Activity} /></div>
+      {!rows.length ? <p className="px-5 pb-5 text-sm text-muted">Run the suite to collect history.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-subtle"><th className="px-5 py-2 font-medium">Scenario</th><th className="px-3 py-2 font-medium">Agent</th><th className="px-3 py-2 font-medium">History (oldest → newest)</th><th className="px-3 py-2 text-right font-medium">Pass</th><th className="hidden px-3 py-2 text-right font-medium md:table-cell">pass@k / pass^k</th><th className="px-5 py-2 text-right font-medium">Verdict</th></tr></thead>
+            <tbody>{rows.slice(0, 40).map((r, i) => (
+              <tr key={i} className="table-row">
+                <td className="px-5 py-2">{r.scenario}{r.critical && <Badge tone="bad" className="ml-1.5">critical</Badge>}</td>
+                <td className="px-3 py-2 text-xs text-muted">{r.agent}</td>
+                <td className="px-3 py-2"><div className="flex gap-0.5">{r.history.map((h: Json, j: number) => <Link key={j} href={`/runs/${h.runId}`} title={`run #${h.runId}: ${h.outcome}`} className={cx("h-3.5 w-2 rounded-sm", h.passed ? "bg-ok" : "bg-bad")} />)}</div></td>
+                <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.passRate * 100)}%</td>
+                <td className="hidden px-3 py-2 text-right text-xs tabular-nums text-muted md:table-cell">{r.passAtK == null ? "—" : `${Math.round(r.passAtK * 100)}% / ${Math.round(r.passHatK * 100)}%`}</td>
+                <td className="px-5 py-2 text-right"><Badge tone={r.verdict === "flaky" ? "warn" : r.verdict === "stable pass" ? "ok" : r.verdict === "stable fail" ? "bad" : "neutral"}>{r.verdict}</Badge></td>
+              </tr>))}</tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function MutateDialog({ scenario, onClose, onDone }: { scenario: Json | null; onClose: () => void; onDone: (n: number) => void }) {
+  const mutators = useApi<Json[]>(scenario ? "/api/mutators" : null);
+  const [picked, setPicked] = useState<string[]>(["base64", "leetspeak", "zero_width", "translation"]);
+  const [busy, setBusy] = useState(false); const toast = useToast();
+  const go = async () => {
+    setBusy(true);
+    try { const r = await api<Json[]>(`/api/scenarios/${scenario.id}/mutate`, { method: "POST", json: { strategies: picked } }); onDone(r.length); }
+    catch (e) { toast((e as Error).message, "bad"); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!scenario} onClose={onClose} title="Generate attack mutations"
+      footer={<><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" onClick={go} disabled={busy || !picked.length}>{busy && <Spinner />}<WandSparkles className="h-4 w-4" />Add {picked.length} scenario{picked.length === 1 ? "" : "s"}</button></>}>
+      <p className="mb-3 text-sm text-muted">Rewrites the input of <b className="text-fg">{scenario?.name}</b> into obfuscated variants that capable models still understand but keyword/regex guards miss. Assertions and faults are copied.</p>
+      <ul className="space-y-1.5">{mutators.data?.map((m) => (
+        <li key={m.id}><label className={cx("flex cursor-pointer items-start gap-3 rounded-lg border p-2.5 transition", picked.includes(m.id) ? "border-accent/50 bg-accent/5" : "border-line")}>
+          <input type="checkbox" className="mt-1" checked={picked.includes(m.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} />
+          <span><span className="text-sm font-medium">{m.label}</span><span className="block text-xs text-muted">{m.description}</span></span>
+        </label></li>))}</ul>
+    </Modal>
   );
 }

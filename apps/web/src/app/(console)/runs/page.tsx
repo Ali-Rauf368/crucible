@@ -32,7 +32,7 @@ export default function Runs() {
               <tr key={r.id} className="table-row">
                 <td className="px-4 py-3">
                   <Link href={`/runs/${r.id}`} className="font-medium hover:text-accent">#{r.id} {r.label}</Link>
-                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-subtle">{r.agent} · {ago(r.created_at)}{r.is_baseline && <Badge tone="accent"><Star className="h-3 w-3" />baseline</Badge>}{r.trigger === "ci" && <Badge tone="info"><GitBranch className="h-3 w-3" />CI{r.git_sha ? ` ${r.git_sha.slice(0, 7)}` : ""}</Badge>}</p>
+                  <p className="flex flex-wrap items-center gap-1.5 text-xs text-subtle">{r.agent} · {ago(r.created_at)}{r.is_baseline && <Badge tone="accent"><Star className="h-3 w-3" />baseline</Badge>}{r.trigger === "ci" && <Badge tone="info"><GitBranch className="h-3 w-3" />CI{r.git_sha ? ` ${r.git_sha.slice(0, 7)}` : ""}</Badge>}{r.trigger === "schedule" && <Badge tone="info">scheduled</Badge>}{r.gate && <Badge tone={r.gate.passed ? "ok" : "bad"}>gate {r.gate.passed ? "✓" : "✗"}</Badge>}</p>
                 </td>
                 <td className="hidden px-3 py-3 text-muted md:table-cell">{r.suite}</td>
                 <td className="px-3 py-3"><RunStatus s={r.status} done={r.done} total={r.total} /></td>

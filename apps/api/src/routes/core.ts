@@ -107,7 +107,7 @@ coreRouter.get("/api/runs", viewer, async (req, res) => {
 coreRouter.get("/api/runs/:id", viewer, async (req, res) => {
   const run = await one(`SELECT r.*, s.name AS suite, s.thresholds, a.name AS agent, a.slug AS agent_slug, a.config AS agent_config FROM runs r JOIN suites s ON s.id = r.suite_id JOIN agents a ON a.id = r.agent_id WHERE r.id = $1`, [id(req.params.id)]);
   if (!run) return void res.status(404).json({ error: "not_found" });
-  const cases = await q(`SELECT id, scenario_id, scenario_name, category, critical, attempt, status, passed, outcome, scores, latency_ms, cost_usd, tokens_in, tokens_out, llm_calls, tool_calls, faults_injected, faults_planned, loop_detected, error FROM run_cases WHERE run_id = $1 ORDER BY id`, [run.id]);
+  const cases = await q(`SELECT id, scenario_id, scenario_name, session_id, category, critical, attempt, status, passed, outcome, scores, latency_ms, cost_usd, tokens_in, tokens_out, llm_calls, tool_calls, faults_injected, faults_planned, loop_detected, error FROM run_cases WHERE run_id = $1 ORDER BY id`, [run.id]);
   const baseline = await one("SELECT id, label FROM runs WHERE suite_id = $1 AND is_baseline AND status = 'completed' AND id <> $2 ORDER BY finished_at DESC LIMIT 1", [run.suite_id, run.id]);
   res.json({ ...run, cases, baseline });
 });

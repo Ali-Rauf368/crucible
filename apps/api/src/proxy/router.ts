@@ -5,6 +5,7 @@ import { verify, checkKey } from "../lib/auth.js";
 import { startSpan, remoteParent, SpanStatusCode, SpanKind } from "../lib/tracing.js";
 import { decide, chance, sleep, breakJson, driftSchema, INJECTIONS, FaultSpec, type Decision } from "../chaos/faults.js";
 import { getSession, countCall, recordUsage, type Session } from "./session.js";
+import { pickExperiment } from "../chaos/experiments.js";
 import { mockRespond, estimateTokens, type MessagesRequest } from "./mockModel.js";
 import { runMockTool, ToolError, TOOLS, DANGEROUS } from "./tools.js";
 import { costUsd } from "./pricing.js";
@@ -45,7 +46,15 @@ async function chaos(session: Session | null, kind: "llm" | "tool", span: Span, 
     if (adhoc.fault.type === "latency") await sleep((adhoc.fault.latencyMs ?? 2000) + (adhoc.fault.jitterMs ?? 0) * Math.random());
     return { terminal: adhoc.fault.type === "latency" ? null : adhoc, loop: false, callNumber: 1 };
   }
-  if (!session) return { terminal: null as Decision | null, loop: false, callNumber: 0 };
+  if (!session) {
+    // live traffic: an active chaos experiment may claim this call
+    const exp = await pickExperiment(kind, tool);
+    if (!exp) return { terminal: null as Decision | null, loop: false, callNumber: 0 };
+    span.setAttributes({ "crucible.fault.type": exp.fault.type, "crucible.experiment.id": exp.id, "crucible.experiment.name": exp.name });
+    span.addEvent("crucible.fault", { type: exp.fault.type, target: exp.fault.target, experiment: exp.id });
+    if (exp.fault.type === "latency") { await sleep((exp.fault.latencyMs ?? 2000) + Math.random() * (exp.fault.jitterMs ?? 0)); return { terminal: null, loop: false, callNumber: 0 }; }
+    return { terminal: { fault: exp.fault, index: 0 } as Decision, loop: false, callNumber: 0 };
+  }
   const c = await countCall(session, kind, tool, signature);
   span.setAttribute("crucible.call.number", c.callNumber);
   if (c.total > session.budget) {

@@ -81,6 +81,36 @@ Plus: dark/light themes, responsive down to phone width, SSE live updates.
 - Audit log.
 - Helmet and rate limits.
 
+## Production-grade extras
+
+**Live chaos experiments**
+- Inject a fault into a percentage of *real* proxy traffic (calls without a test session).
+- Safety rails:
+  - a blast-radius cap (max injections)
+  - a mandatory expiry
+  - a per-experiment stop button
+  - a global **kill switch** that takes effect on every replica within about 2 s
+- Injected spans are tagged with `crucible.experiment.id`.
+
+**Attack mutation fuzzing**
+- Turns one red-team scenario into obfuscated variants: base64 smuggling, leetspeak, zero-width characters, German translation, role-play wrapper, hidden HTML comment, payload splitting.
+- Capable models still understand these variants; keyword and regex guards don't.
+- In the demo, the obfuscated variants slip past v2's regex input guard, but its output redaction still prevents the leak (defence in depth). That is exactly the kind of finding this feature exists to surface.
+
+**Record & replay**
+- Pin any case as a new scenario that replays its exact input and fault schedule (same types, targets and call numbers).
+
+**Flakiness analysis**
+- Per scenario and agent: pass history, flip count, **pass@k** (any of k repeats passes) and **pass^k** (all k pass).
+- A verdict for each: stable pass, stable fail, flaky, or mostly passing / mostly failing.
+
+**Scheduled runs**
+- Continuous evaluation on a cadence (catches model drift and upstream changes).
+- Each run reuses the baseline's seed and is gated against the baseline.
+- Slack-compatible webhook alerts, on failure or on every run, with a delivery log.
+- Schedules fire exactly once across replicas (`SKIP LOCKED`).
+- Every completed run stores its gate verdict, shown as a badge on run pages.
+
 ## The demo agents
 
 Two reference agents run the same task (a support bot with order, refund, knowledge-base, weather, currency, email and funds-transfer tools) against an offline mock model:
@@ -138,9 +168,9 @@ Or call the API directly: `POST /api/ci/runs` returns 200 when the gate passes a
 ## Tests
 
 ```bash
-npm test                      # API: 20 tests incl. full naive-vs-hardened runs, red team, CI gate, OTLP + NiFi ingest
+npm test                      # API: 26 tests incl. full naive-vs-hardened runs, red team, CI gate, OTLP + NiFi ingest
 npm run typecheck
-cd e2e && npx playwright test # 3 browser flows (needs `npm run dev` running)
+cd e2e && npx playwright test # 5 browser flows (needs `npm run dev` running)
 ```
 
 ## Layout

@@ -9,6 +9,7 @@ import { authRouter } from "./routes/auth.js";
 import { coreRouter } from "./routes/core.js";
 import { platformRouter } from "./routes/platform.js";
 import { proxyRouter } from "./proxy/router.js";
+import { advancedRouter } from "./routes/advanced.js";
 
 export function buildApp() {
   const app = express();
@@ -26,7 +27,7 @@ export function buildApp() {
     res.on("finish", () => { const ms = performance.now() - t0; if (env.NODE_ENV !== "test" && !req.path.startsWith("/proxy") && (res.statusCode >= 500 || (ms > 2000 && !req.path.startsWith("/proxy") && req.path !== "/api/stream" && !req.path.startsWith("/api/ci")))) console.log(JSON.stringify({ level: "info", method: req.method, path: req.path, status: res.statusCode, ms: Math.round(ms) })); });
     next();
   });
-  app.use(authRouter, coreRouter, platformRouter, proxyRouter);
+  app.use(authRouter, coreRouter, advancedRouter, platformRouter, proxyRouter);
   app.use((_req, res) => { res.status(404).json({ error: "not_found" }); });
   app.use((err: Error & { status?: number; statusCode?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     if (err instanceof ZodError) return void res.status(400).json({ error: "validation_error", message: err.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ") });

@@ -167,3 +167,50 @@ ALTER TABLE run_cases ADD COLUMN IF NOT EXISTS call_counts JSONB NOT NULL DEFAUL
 ALTER TABLE run_cases ADD COLUMN IF NOT EXISTS loop_detected BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE run_cases ADD COLUMN IF NOT EXISTS unsafe_actions JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE run_cases ADD COLUMN IF NOT EXISTS data JSONB;
+
+-- Live chaos experiments on real (non-test) proxy traffic
+CREATE TABLE IF NOT EXISTS experiments (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  fault JSONB NOT NULL,
+  traffic_pct DOUBLE PRECISION NOT NULL CHECK (traffic_pct > 0 AND traffic_pct <= 100),
+  max_injections INT NOT NULL DEFAULT 100,
+  injected INT NOT NULL DEFAULT 0,
+  eligible INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','stopped','completed')),
+  stop_reason TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  stopped_at TIMESTAMPTZ
+);
+
+-- Scheduled evaluation runs with webhook alerts
+CREATE TABLE IF NOT EXISTS schedules (
+  id SERIAL PRIMARY KEY,
+  suite_id INT NOT NULL REFERENCES suites(id) ON DELETE CASCADE,
+  agent_id INT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  interval_minutes INT NOT NULL CHECK (interval_minutes BETWEEN 5 AND 10080),
+  webhook_url TEXT,
+  notify TEXT NOT NULL DEFAULT 'failures' CHECK (notify IN ('failures','always','never')),
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  next_run_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_run_id INT REFERENCES runs(id) ON DELETE SET NULL,
+  last_status TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS schedule_id INT REFERENCES schedules(id) ON DELETE SET NULL;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS gate JSONB;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id BIGSERIAL PRIMARY KEY,
+  schedule_id INT REFERENCES schedules(id) ON DELETE CASCADE,
+  run_id INT REFERENCES runs(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  status INT,
+  error TEXT,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE scenarios ADD COLUMN IF NOT EXISTS source JSONB;

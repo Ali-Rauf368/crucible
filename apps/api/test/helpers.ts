@@ -10,7 +10,7 @@ import { startWorker, stopWorker } from "../src/lib/queue.js";
 
 export async function setup() {
   await migrate();
-  await pool.query("TRUNCATE users, api_keys, agents, suites, scenarios, runs, run_cases, spans, audit_log, jobs RESTART IDENTITY CASCADE");
+  await pool.query("TRUNCATE users, api_keys, agents, suites, scenarios, runs, run_cases, spans, audit_log, jobs, experiments, schedules, notifications RESTART IDENTITY CASCADE");
   await seed({ force: true });
   registerJobs();
   const app = buildApp();

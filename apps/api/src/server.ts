@@ -10,6 +10,7 @@ import { registerJobs, createRun, setSelfUrl } from "./services/runner.js";
 import { setPlatformSelfUrl } from "./routes/platform.js";
 import { judgeMode } from "./eval/judge.js";
 import { flushSpans } from "./lib/tracing.js";
+import { startScheduler, stopScheduler } from "./services/scheduler.js";
 
 await migrate();
 const store = await initTraceStore();
@@ -24,6 +25,7 @@ const server = app.listen(env.PORT, host, () => {
   setSelfUrl(process.env.PUBLIC_URL ?? self); setPlatformSelfUrl(process.env.PUBLIC_URL ?? self);
   console.log(`Crucible API on :${env.PORT} · traces=${store.backend} · queue=${queueBackend()} · judge=${judgeMode()}`);
   if (process.env.WORKER !== "off") startWorker(Number(process.env.WORKER_CONCURRENCY ?? 6));
+  startScheduler();
   if (seeded) void bootstrapRuns();
 });
 server.requestTimeout = 0; // long-poll CI waits and hanging-upstream simulations
@@ -45,6 +47,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const)
   process.on(sig, async () => {
     setTimeout(() => process.exit(1), 10_000).unref();
     server.close();
+    stopScheduler();
     await stopWorker();
     await flushSpans().catch(() => {});
     await stopBusListener();

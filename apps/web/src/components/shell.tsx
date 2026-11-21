@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutDashboard, PlayCircle, FlaskConical, GitCompareArrows, Zap, Radio, Bot, Plug, ShieldCheck, Menu, X, Sun, Moon, LogOut, Rocket } from "lucide-react";
+import { LayoutDashboard, PlayCircle, FlaskConical, GitCompareArrows, Zap, Radio, Bot, Plug, ShieldCheck, Menu, X, Sun, Moon, LogOut, Rocket, CalendarClock, FlaskRound } from "lucide-react";
 import { api, useApi } from "@/lib/api";
 import { useLive, type LiveEvent, type LiveState } from "@/lib/live";
 import { Modal, Spinner, ToastProvider, useToast, cx } from "./ui";
@@ -23,8 +23,8 @@ export function useLiveEvents(fn: Listener, deps: unknown[] = []) {
 }
 
 const NAV = [
-  { group: "Evaluate", items: [{ href: "/", label: "Overview", icon: LayoutDashboard }, { href: "/runs", label: "Runs", icon: PlayCircle }, { href: "/suites", label: "Test suites", icon: FlaskConical }, { href: "/compare", label: "Regressions", icon: GitCompareArrows }] },
-  { group: "Chaos", items: [{ href: "/chaos", label: "Chaos studio", icon: Zap }, { href: "/traffic", label: "Live traffic", icon: Radio }] },
+  { group: "Evaluate", items: [{ href: "/", label: "Overview", icon: LayoutDashboard }, { href: "/runs", label: "Runs", icon: PlayCircle }, { href: "/suites", label: "Test suites", icon: FlaskConical }, { href: "/compare", label: "Regressions", icon: GitCompareArrows }, { href: "/schedules", label: "Schedules", icon: CalendarClock }] },
+  { group: "Chaos", items: [{ href: "/chaos", label: "Chaos studio", icon: Zap }, { href: "/experiments", label: "Live experiments", icon: FlaskRound }, { href: "/traffic", label: "Live traffic", icon: Radio }] },
   { group: "Platform", items: [{ href: "/agents", label: "Agents", icon: Bot }, { href: "/integrations", label: "Integrations & CI", icon: Plug }, { href: "/audit", label: "Audit log", icon: ShieldCheck }] },
 ];
 
