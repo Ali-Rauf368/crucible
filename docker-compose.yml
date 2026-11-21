@@ -1,0 +1,39 @@
+# Full stack with the optional backends switched on: MongoDB trace store + Redis/BullMQ queue.
+#   ANTHROPIC_API_KEY=sk-ant-... docker compose up --build   →  http://localhost:3200
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: crucible, POSTGRES_PASSWORD: crucible, POSTGRES_DB: crucible }
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U crucible"], interval: 3s, retries: 20 }
+  mongo:
+    image: mongo:7
+    volumes: [mongo:/data/db]
+    healthcheck: { test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1})"], interval: 5s, retries: 20 }
+  redis:
+    image: redis:7-alpine
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 3s, retries: 20 }
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    environment: &apienv
+      DATABASE_URL: postgresql://crucible:crucible@postgres:5432/crucible
+      MONGO_URL: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-please-change-this-secret-in-production}
+      WEB_ORIGIN: http://localhost:3200
+      PUBLIC_URL: http://api:4200
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      WORKER: "off"
+    ports: ["4200:4200"]
+    depends_on: { postgres: { condition: service_healthy }, mongo: { condition: service_healthy }, redis: { condition: service_healthy } }
+  worker:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    command: ["npx", "tsx", "src/worker-main.ts"]
+    environment: *apienv
+    deploy: { replicas: 2 }
+    depends_on: [api]
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile, args: { NEXT_PUBLIC_API_URL: http://localhost:4200 } }
+    ports: ["3200:3200"]
+    depends_on: [api]
+volumes: { pg: {}, mongo: {} }

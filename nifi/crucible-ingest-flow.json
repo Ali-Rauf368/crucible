@@ -1,0 +1,93 @@
+{
+  "description": "Apache NiFi flow: tail LLM-gateway logs (JSON lines), normalise them to the Crucible record shape, batch as NDJSON and POST to Crucible. Import via NiFi 2.x 'Upload flow definition' and set the CRUCIBLE_URL / CRUCIBLE_INGEST_KEY parameters.",
+  "parameterContexts": {
+    "crucible": {
+      "name": "crucible",
+      "parameters": [
+        { "name": "CRUCIBLE_URL", "value": "http://crucible-api:4200", "sensitive": false },
+        { "name": "CRUCIBLE_INGEST_KEY", "value": "", "sensitive": true },
+        { "name": "LOG_PATH", "value": "/var/log/llm-gateway/requests.jsonl", "sensitive": false }
+      ]
+    }
+  },
+  "flowContents": {
+    "name": "Crucible ingest",
+    "parameterContextName": "crucible",
+    "processors": [
+      {
+        "identifier": "tail-gateway-log",
+        "name": "TailFile (LLM gateway log)",
+        "type": "org.apache.nifi.processors.standard.TailFile",
+        "properties": { "File(s) to Tail": "#{LOG_PATH}", "tail-mode": "Single file", "Initial Start Position": "Current Time" },
+        "schedulingPeriod": "1 sec"
+      },
+      {
+        "identifier": "split-lines",
+        "name": "SplitText (one record per line)",
+        "type": "org.apache.nifi.processors.standard.SplitText",
+        "properties": { "Line Split Count": "1", "Remove Trailing Newlines": "true" }
+      },
+      {
+        "identifier": "normalise",
+        "name": "JoltTransformJSON (to Crucible record)",
+        "type": "org.apache.nifi.processors.jolt.JoltTransformJSON",
+        "properties": {
+          "Jolt Transform": "jolt-transform-shift",
+          "Jolt Specification": "{\"ts\":\"timestamp\",\"gateway\":\"source\",\"type\":\"kind\",\"provider\":\"provider\",\"model\":\"model\",\"tool_name\":\"tool\",\"duration_ms\":\"latency_ms\",\"usage\":{\"prompt_tokens\":\"input_tokens\",\"completion_tokens\":\"output_tokens\"},\"http_status\":\"status\",\"request_preview\":\"prompt\",\"session\":\"session_id\",\"trace\":\"trace_id\"}"
+        }
+      },
+      {
+        "identifier": "merge-ndjson",
+        "name": "MergeContent (NDJSON batches, max 5000)",
+        "type": "org.apache.nifi.processors.standard.MergeContent",
+        "properties": { "Merge Strategy": "Bin-Packing Algorithm", "Minimum Number of Entries": "50", "Maximum Number of Entries": "5000", "Max Bin Age": "10 sec", "Delimiter Strategy": "Text", "Demarcator File": "\n" }
+      },
+      {
+        "identifier": "post-crucible",
+        "name": "InvokeHTTP (POST /api/ingest/nifi)",
+        "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+        "properties": {
+          "HTTP Method": "POST",
+          "HTTP URL": "#{CRUCIBLE_URL}/api/ingest/nifi",
+          "Request Content-Type": "application/x-ndjson",
+          "x-api-key": "#{CRUCIBLE_INGEST_KEY}",
+          "Connection Timeout": "10 secs",
+          "Socket Read Timeout": "30 secs"
+        },
+        "retry": { "maxRetries": 5, "backoff": "exponential", "maxBackoff": "5 min" }
+      },
+      {
+        "identifier": "dead-letter",
+        "name": "PutFile (dead letter: 4xx / exhausted retries)",
+        "type": "org.apache.nifi.processors.standard.PutFile",
+        "properties": { "Directory": "/var/lib/nifi/crucible-dead-letter" }
+      }
+    ],
+    "connections": [
+      { "source": "tail-gateway-log", "destination": "split-lines", "relationships": ["success"] },
+      { "source": "split-lines", "destination": "normalise", "relationships": ["splits"] },
+      { "source": "normalise", "destination": "merge-ndjson", "relationships": ["success"] },
+      { "source": "normalise", "destination": "dead-letter", "relationships": ["failure"] },
+      { "source": "merge-ndjson", "destination": "post-crucible", "relationships": ["merged"] },
+      { "source": "post-crucible", "destination": "dead-letter", "relationships": ["No Retry", "Failure"] },
+      { "source": "post-crucible", "destination": "post-crucible", "relationships": ["Retry"] }
+    ]
+  },
+  "crucibleRecordShape": {
+    "source": "string (shown as service nifi:<source>)",
+    "kind": "llm | tool",
+    "provider": "string",
+    "model": "string",
+    "tool": "string",
+    "latency_ms": "number",
+    "input_tokens": "integer",
+    "output_tokens": "integer",
+    "cost_usd": "number (optional)",
+    "status": "HTTP status number or 'ok'/'error'",
+    "prompt": "string (preview, max 4000)",
+    "response": "string (max 4000)",
+    "session_id": "string (optional)",
+    "trace_id": "32-hex string (optional)",
+    "timestamp": "ISO-8601 or epoch ms (end of the call)"
+  }
+}
