@@ -57,7 +57,10 @@ function Inner({ children }: { children: ReactNode }) {
   useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
   const toggleTheme = () => { const n = !dark; setDark(n); document.documentElement.classList.toggle("dark", n); try { localStorage.setItem("cr-theme", n ? "dark" : "light"); } catch { /* ignore */ } };
 
-  if (!me.data) return <div className="flex h-screen items-center justify-center text-accent">{me.error ? <p className="text-sm text-bad">{me.error}</p> : <Spinner className="h-6 w-6" />}</div>;
+  // not signed in (or session expired): go to the login page instead of showing the API error
+  const unauth = !me.data && /sign in required|unauthorized|session expired/i.test(me.error ?? "");
+  useEffect(() => { if (unauth) router.replace(`/login?next=${encodeURIComponent(pathname)}`); }, [unauth, router, pathname]);
+  if (!me.data) return <div className="flex h-screen items-center justify-center text-accent">{me.error && !unauth ? <div className="text-center"><p className="text-sm text-bad">{me.error}</p><button className="btn-secondary mt-3" onClick={me.reload}>Retry</button></div> : <Spinner className="h-6 w-6" />}</div>;
   const user = me.data.user;
   const logout = async () => { await api("/api/auth/logout", { method: "POST" }); router.push("/login"); };
 
