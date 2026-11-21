@@ -7,6 +7,7 @@ import { AssertionSpec } from "../eval/assertions.js";
 import { compare } from "../eval/compare.js";
 import { createRun, cancelRun, waitForRun } from "../services/runner.js";
 import { traces } from "../lib/traceStore.js";
+import { runReport } from "../services/report.js";
 
 export const coreRouter = Router();
 const viewer = requireRole("viewer"), engineer = requireRole("engineer");
@@ -110,6 +111,12 @@ coreRouter.get("/api/runs/:id", viewer, async (req, res) => {
   const cases = await q(`SELECT id, scenario_id, scenario_name, session_id, category, critical, attempt, status, passed, outcome, scores, latency_ms, cost_usd, tokens_in, tokens_out, llm_calls, tool_calls, faults_injected, faults_planned, loop_detected, error FROM run_cases WHERE run_id = $1 ORDER BY id`, [run.id]);
   const baseline = await one("SELECT id, label FROM runs WHERE suite_id = $1 AND is_baseline AND status = 'completed' AND id <> $2 ORDER BY finished_at DESC LIMIT 1", [run.suite_id, run.id]);
   res.json({ ...run, cases, baseline });
+});
+coreRouter.get("/api/runs/:id/report.md", viewer, async (req, res) => {
+  const md = await runReport(id(req.params.id));
+  if (!md) return void res.status(404).json({ error: "not_found" });
+  res.type("text/markdown; charset=utf-8").setHeader("content-disposition", `attachment; filename="crucible-run-${req.params.id}.md"`);
+  res.send(md);
 });
 coreRouter.get("/api/cases/:id", viewer, async (req, res) => {
   const c = await one("SELECT c.*, s.input, s.expected, s.assertions AS assertion_specs FROM run_cases c LEFT JOIN scenarios s ON s.id = c.scenario_id WHERE c.id = $1", [id(req.params.id)]);

@@ -1,5 +1,6 @@
 import { one, q } from "../db/pool.js";
 import { createRun } from "./runner.js";
+import { assertPublicUrl } from "../lib/netguard.js";
 
 /**
  * Scheduled runs. Every API/worker replica polls, but due schedules are claimed with SKIP LOCKED and
@@ -27,6 +28,7 @@ export function stopScheduler() { if (timer) clearInterval(timer); timer = null;
 export async function notify(scheduleId: number | null, runId: number | null, url: string, payload: Record<string, unknown>) {
   let status: number | null = null, error: string | null = null;
   try {
+    await assertPublicUrl(url); // re-checked at send time: DNS may have changed since the URL was saved
     const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "user-agent": "crucible-webhook/1.0" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(5000), redirect: "error" });
     status = r.status;
     if (!r.ok) error = `HTTP ${r.status}`;

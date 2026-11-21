@@ -131,7 +131,8 @@ describe("ingestion", () => {
   let key = "";
   beforeAll(async () => { key = (await (await post("/api/keys", { name: "nifi", scopes: ["ingest"] }, admin)).json()).key; });
   it("accepts OTLP/HTTP JSON spans", async () => {
-    const body = { resourceSpans: [{ resource: { attributes: [{ key: "service.name", value: { stringValue: "external-agent" } }] }, scopeSpans: [{ spans: [{ traceId: "a".repeat(32), spanId: "b".repeat(16), name: "chat gpt-x", startTimeUnixNano: String(Date.now() * 1e6), endTimeUnixNano: String((Date.now() + 250) * 1e6), attributes: [{ key: "gen_ai.operation.name", value: { stringValue: "chat" } }, { key: "gen_ai.usage.input_tokens", value: { intValue: "42" } }] }] }] }] };
+    const T0 = Date.now();
+    const body = { resourceSpans: [{ resource: { attributes: [{ key: "service.name", value: { stringValue: "external-agent" } }] }, scopeSpans: [{ spans: [{ traceId: "a".repeat(32), spanId: "b".repeat(16), name: "chat gpt-x", startTimeUnixNano: String(BigInt(T0) * 1_000_000n), endTimeUnixNano: String(BigInt(T0 + 250) * 1_000_000n), attributes: [{ key: "gen_ai.operation.name", value: { stringValue: "chat" } }, { key: "gen_ai.usage.input_tokens", value: { intValue: "42" } }] }] }] }] };
     const r = await fetch(url + "/v1/traces", { method: "POST", headers: { "x-api-key": key, "content-type": "application/json" }, body: JSON.stringify(body) });
     expect((await r.json()).accepted).toBe(1);
     const t = await get(`/api/traces/${"a".repeat(32)}`);

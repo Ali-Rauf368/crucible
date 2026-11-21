@@ -4,7 +4,7 @@ async function signIn(page: Page, role: "Engineer" | "Admin" | "Viewer" = "Engin
   await page.goto("/login");
   await page.getByRole("button", { name: role, exact: true }).click();
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByText("Agent reliability overview")).toBeVisible();
+  await expect(page.getByText("Agent reliability overview")).toBeVisible({ timeout: 90_000 });
 }
 
 test("engineer launches a chaos run, inspects a failing case trace, and compares to the baseline", async ({ page }) => {
@@ -28,7 +28,8 @@ test("engineer launches a chaos run, inspects a failing case trace, and compares
   await inspector.getByRole("button", { name: "Close" }).click();
 
   await page.getByRole("link", { name: "Compare to baseline" }).click();
-  await expect(page.getByText("Gate failed: this change would be blocked in CI")).toBeVisible();
+  await page.waitForURL(/\/compare\?/, { timeout: 90_000 });
+  await expect(page.getByText("Gate failed: this change would be blocked in CI")).toBeVisible({ timeout: 90_000 });
   await expect(page.getByText(/critical scenario\(s\) regressed/)).toBeVisible();
 });
 

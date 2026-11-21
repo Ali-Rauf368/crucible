@@ -2,10 +2,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { LayoutDashboard, PlayCircle, FlaskConical, GitCompareArrows, Zap, Radio, Bot, Plug, ShieldCheck, Menu, X, Sun, Moon, LogOut, Rocket, CalendarClock, FlaskRound } from "lucide-react";
+import { LayoutDashboard, PlayCircle, FlaskConical, GitCompareArrows, Zap, Radio, Bot, Plug, ShieldCheck, Menu, X, Sun, Moon, LogOut, Rocket, CalendarClock, FlaskRound, Search } from "lucide-react";
 import { api, useApi } from "@/lib/api";
 import { useLive, type LiveEvent, type LiveState } from "@/lib/live";
 import { Modal, Spinner, ToastProvider, useToast, cx } from "./ui";
+import { CommandPalette } from "./palette";
 
 export interface User { id: number; name: string; email: string; role: "viewer" | "engineer" | "admin" }
 const RANK = ["viewer", "engineer", "admin"];
@@ -37,6 +38,12 @@ function Inner({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [dark, setDark] = useState(true);
   const [run, setRun] = useState<{ suiteId?: number; agentId?: number } | null>(null);
+  const [palette, setPalette] = useState(false);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); } };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
   const listeners = useRef(new Set<Listener>());
   const toast = useToast();
   const state = useLive((e) => {
@@ -91,6 +98,9 @@ function Inner({ children }: { children: ReactNode }) {
             <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line bg-bg/80 px-4 backdrop-blur sm:px-6">
               <button className="btn-ghost p-1.5 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><Menu className="h-5 w-5" /></button>
               <span className="text-sm font-semibold lg:hidden">Crucible</span>
+              <button onClick={() => setPalette(true)} className="ml-2 hidden h-9 w-72 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-subtle transition hover:border-accent/40 sm:flex" aria-label="Open command palette">
+                <Search className="h-4 w-4" />Jump to…<span className="kbd ml-auto">Ctrl K</span>
+              </button>
               <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
                 <span className="inline-flex items-center gap-2 text-xs text-muted" title={`Realtime: ${state}`}>
                   <span className="relative flex h-2 w-2">{state === "live" && <span className="absolute inset-0 animate-pulseRing rounded-full bg-ok" />}<span className={cx("relative h-2 w-2 rounded-full", state === "live" ? "bg-ok" : state === "connecting" ? "bg-warn" : "bg-bad")} /></span>
@@ -103,6 +113,7 @@ function Inner({ children }: { children: ReactNode }) {
             <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">{children}</main>
           </div>
           <RunDialog preset={run} onClose={() => setRun(null)} />
+          <CommandPalette open={palette} onClose={() => setPalette(false)} onNewRun={can(user, "engineer") ? () => openRun() : undefined} />
         </div>
       </LiveCtx.Provider>
     </SessionCtx.Provider>

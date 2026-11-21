@@ -111,6 +111,12 @@ Plus: dark/light themes, responsive down to phone width, SSE live updates.
 - Schedules fire exactly once across replicas (`SKIP LOCKED`).
 - Every completed run stores its gate verdict, shown as a badge on run pages.
 
+**More**
+- **OWASP LLM Top 10 coverage** per suite. Scenarios are mapped through explicit `owasp-llmNN` tags or inferred from their category, faults and assertions. Each risk shows the pass rate from every agent's latest run.
+- **Shareable Markdown run report** (`/api/runs/:id/report.md`) covering the gate verdict, scores, outcomes, fault survival, OWASP coverage and failing cases with judge reasoning. Ready for a PR comment or a security review.
+- **Webhook SSRF guard.** Loopback, private, link-local (cloud metadata), CGNAT and multicast targets are rejected when a webhook is saved, and re-checked before every delivery. `WEBHOOK_ALLOW_PRIVATE=true` allows internal receivers in development.
+- **Ctrl/Cmd + K command palette** for jumping to any page, suite or recent run, or launching a run.
+
 ## The demo agents
 
 Two reference agents run the same task (a support bot with order, refund, knowledge-base, weather, currency, email and funds-transfer tools) against an offline mock model:
@@ -168,9 +174,9 @@ Or call the API directly: `POST /api/ci/runs` returns 200 when the gate passes a
 ## Tests
 
 ```bash
-npm test                      # API: 26 tests incl. full naive-vs-hardened runs, red team, CI gate, OTLP + NiFi ingest
+npm test                      # API: 29 tests incl. full naive-vs-hardened runs, red team, CI gate, OTLP + NiFi ingest
 npm run typecheck
-cd e2e && npx playwright test # 5 browser flows (needs `npm run dev` running)
+cd e2e && npx playwright test # 6 browser flows (needs `npm run dev` running)
 ```
 
 ## Layout

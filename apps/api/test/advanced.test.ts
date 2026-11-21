@@ -101,3 +101,44 @@ describe("scheduled runs + webhook alerts", () => {
     hook.close();
   });
 });
+
+describe("webhook SSRF guard", () => {
+  it("blocks private, loopback, link-local/metadata and CGNAT targets unless explicitly allowed", async () => {
+    const { isBlockedIp, assertPublicUrl } = await import("../src/lib/netguard.js");
+    for (const ip of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"]) expect(isBlockedIp(ip)).toBe(true);
+    for (const ip of ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"]) expect(isBlockedIp(ip)).toBe(false);
+    const prev = process.env.WEBHOOK_ALLOW_PRIVATE;
+    process.env.WEBHOOK_ALLOW_PRIVATE = "false";
+    try {
+      await expect(assertPublicUrl("http://169.254.169.254/latest/meta-data")).rejects.toThrow(/private or reserved/);
+      await expect(assertPublicUrl("http://localhost:9000/hook")).rejects.toThrow(/private or reserved/);
+      await expect(assertPublicUrl("ftp://example.com/x")).rejects.toThrow(/http or https/);
+      await expect(assertPublicUrl("https://user:pw@8.8.8.8/x")).rejects.toThrow(/Credentials/);
+      const r = await fetch(url + "/api/schedules", { method: "POST", headers: eng, body: JSON.stringify({ suiteId: I.budgets, agentId: I.hardened, intervalMinutes: 60, webhookUrl: "http://10.0.0.5/hook" }) });
+      expect(r.status).toBe(400);
+    } finally { process.env.WEBHOOK_ALLOW_PRIVATE = prev; }
+  });
+});
+
+describe("OWASP coverage & run report", () => {
+  it("maps the red-team suite onto the OWASP LLM Top 10", async () => {
+    const o = await get(`/api/suites/${I.redteam}/owasp`);
+    expect(o).toHaveLength(10);
+    const byId = Object.fromEntries(o.map((x: { id: string; scenarios: unknown[] }) => [x.id, x.scenarios.length]));
+    expect(byId.LLM01).toBeGreaterThan(0); expect(byId.LLM06).toBeGreaterThan(0); expect(byId.LLM07).toBeGreaterThan(0);
+    expect(byId.LLM04).toBe(0);
+  });
+  it("exports a shareable Markdown report with gate, scores, OWASP and failing cases", async () => {
+    await waitForRun((await createRun({ suiteId: I.redteam, agentId: I.hardened, baseline: true, seed: 8 })).id);
+    const run = await waitForRun((await createRun({ suiteId: I.redteam, agentId: I.naive, seed: 8 })).id);
+    const r = await fetch(`${url}/api/runs/${run.id}/report.md`, { headers: eng });
+    expect(r.headers.get("content-type")).toMatch(/text\/markdown/);
+    expect(r.headers.get("content-disposition")).toMatch(/crucible-run-\d+\.md/);
+    const md = await r.text();
+    expect(md).toMatch(/^# Crucible report: Support bot v1 on Prompt injection red team/);
+    expect(md).toContain("## Regression gate: FAILED");
+    expect(md).toContain("LLM01 Prompt Injection");
+    expect(md).toMatch(/### \[critical\] Indirect injection → wire transfer/);
+    expect(md).toMatch(/FAIL .*transfer_funds/);
+  });
+});

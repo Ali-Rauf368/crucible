@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { use, useState } from "react";
-import { ArrowLeft, Plus, Pencil, Trash2, Zap, Rocket, Scale, Gauge, Copy, Download, WandSparkles, Activity, Replace } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, Zap, Rocket, Scale, Gauge, Copy, Download, WandSparkles, Activity, Replace, ShieldHalf } from "lucide-react";
 import { api, useApi } from "@/lib/api";
 import { pct, ago } from "@/lib/format";
 import { Card, CardHeader, Badge, Skeleton, ErrorBox, Empty, Modal, Spinner, useToast, cx } from "@/components/ui";
@@ -19,6 +19,7 @@ export default function SuitePage({ params }: { params: Promise<{ id: string }> 
   const [del, setDel] = useState<Json | null>(null);
   const [fuzz, setFuzz] = useState<Json | null>(null);
   const flaky = useApi<Json[]>(`/api/suites/${id}/flakiness`);
+  const owasp = useApi<Json[]>(`/api/suites/${id}/owasp`);
   const user = useSession(); const toast = useToast(); const openRun = useOpenRun();
   const engineer = can(user, "engineer");
   if (s.error && !s.data) return <ErrorBox message={s.error} onRetry={s.reload} />;
@@ -90,6 +91,7 @@ export default function SuitePage({ params }: { params: Promise<{ id: string }> 
           </Card>
         </div>
       </div>
+      <OwaspPanel rows={owasp.data} />
       <FlakinessPanel rows={flaky.data} />
       <MutateDialog scenario={fuzz} onClose={() => setFuzz(null)} onDone={(n) => { setFuzz(null); toast(`${n} mutated scenario(s) added`, "ok"); s.reload(); }} />
       <ScenarioEditor draft={draft} onClose={() => setDraft(null)} onSave={save} />
@@ -145,5 +147,28 @@ function MutateDialog({ scenario, onClose, onDone }: { scenario: Json | null; on
           <span><span className="text-sm font-medium">{m.label}</span><span className="block text-xs text-muted">{m.description}</span></span>
         </label></li>))}</ul>
     </Modal>
+  );
+}
+
+function OwaspPanel({ rows }: { rows: Json[] | null }) {
+  if (!rows) return <Skeleton className="h-40" />;
+  const covered = rows.filter((r) => r.scenarios.length).length;
+  return (
+    <Card className="card-pad">
+      <CardHeader title="OWASP Top 10 for LLM apps" subtitle={`${covered}/10 risk categories covered by this suite · pass rate from each agent's latest run`} icon={ShieldHalf} />
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">{rows.map((r) => (
+        <div key={r.id} className={cx("rounded-lg border p-3", r.scenarios.length ? "border-line bg-raised/40" : "border-dashed border-line opacity-60")} title={r.scenarios.map((s: Json) => s.name).join("\n") || "Not covered"}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-subtle">{r.id}</p>
+          <p className="mt-0.5 text-sm font-medium leading-snug">{r.name}</p>
+          {!r.scenarios.length ? <p className="mt-2 text-xs text-subtle">Not covered</p> : (
+            <div className="mt-2 space-y-1">
+              <p className="text-xs text-muted">{r.scenarios.length} scenario{r.scenarios.length > 1 ? "s" : ""}</p>
+              {r.agents.filter((a: Json) => a.cases).map((a: Json) => (
+                <div key={a.agent} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-muted">{a.agent}</span><span className={cx("font-semibold tabular-nums", a.passRate >= 0.9 ? "text-ok" : a.passRate >= 0.5 ? "text-warn" : "text-bad")}>{Math.round(a.passRate * 100)}%</span></div>
+              ))}
+            </div>
+          )}
+        </div>))}</div>
+    </Card>
   );
 }

@@ -71,7 +71,8 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
             {engineer && live && <button className="btn-secondary" onClick={() => act(`/api/runs/${r.id}/cancel`, "Run cancelled")}><Square className="h-4 w-4" />Cancel</button>}
             {engineer && !live && <button className="btn-secondary" onClick={rerun} title="Same suite, agent and seed"><RotateCcw className="h-4 w-4" />Re-run</button>}
             {engineer && r.status === "completed" && !r.is_baseline && <button className="btn-secondary" onClick={() => act(`/api/runs/${r.id}/baseline`, "Baseline updated")}><Flag className="h-4 w-4" />Set baseline</button>}
-            <button className="btn-ghost" onClick={exportJson} aria-label="Export JSON"><Download className="h-4 w-4" /></button>
+            {r.status === "completed" && <a className="btn-secondary" href={`/api/runs/${r.id}/report.md`} download><FileText className="h-4 w-4" />Report</a>}
+            <button className="btn-ghost" onClick={exportJson} aria-label="Export JSON" title="Raw JSON"><Download className="h-4 w-4" /></button>
           </div>
         </div>
         {live && (
